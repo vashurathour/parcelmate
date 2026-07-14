@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ParcelMate — Partner Portal</title>
+<link rel="stylesheet" href="../shared.css">
+<style>
+.app{display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:100}
+.main{margin-left:220px;flex:1;padding:28px}
+.logo{padding:20px;border-bottom:1px solid var(--border)}
+.logo-name{font-size:18px;font-weight:800;color:var(--amber)}
+.nav{padding:12px 8px;flex:1}
+.ni{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r);cursor:pointer;color:var(--muted);font-size:13px;transition:.15s;margin-bottom:2px}
+.ni:hover{background:var(--bg);color:var(--text)}
+.ni.on{background:var(--amberL);color:var(--amber);font-weight:600}
+.user-box{padding:16px 20px;border-top:1px solid var(--border)}
+.logout{font-size:12px;color:var(--coral);cursor:pointer;margin-top:6px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:18px}
+.stat-val{font-size:26px;font-weight:800;margin-bottom:4px}
+.stat-lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+/* SLA */
+.sla-g{color:var(--green);font-weight:700}
+.sla-w{color:var(--amber);font-weight:700}
+.sla-b{color:var(--coral);font-weight:700}
+.sla-bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;margin-top:8px}
+.sla-fill{height:100%;border-radius:4px;background:var(--teal);transition:.5s}
+/* Auth */
+.aw{min-height:100vh;display:flex;align-items:center;justify-content:center}
+.ac{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:36px;width:380px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const API='http://localhost:3001/api';
+let S={
+  token:localStorage.getItem('pm_token'),
+  user:JSON.parse(localStorage.getItem('pm_user')||'null'),
+  view:'dashboard',
+  orders:[],partners:[],
+  loading:false,err:null,ok:null
+};
+function set(p){Object.assign(S,p);draw()}
+async function api(m,path,body){
+  const r=await fetch(API+path,{method:m,headers:{'Content-Type':'application/json',...(S.token?{Authorization:'Bearer '+S.token}:{})},body:body?JSON.stringify(body):undefined});
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+function fmt(dt){if(!dt)return'—';return new Date(dt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}
+function rup(n){return'₹'+Math.round(n||0)}
+function badge(s){return`<span class="badge s-${s}">${(s||'').replace(/_/g,' ')}</span>`}
+function daysSince(dt){return dt?Math.floor((Date.now()-new Date(dt))/(86400000)):0}
+
+async function loadAll(){
+  try{
+    const[o,p]=await Promise.all([api('GET','/orders?limit=200'),api('GET','/partners')]);
+    set({orders:o.orders||[],partners:p.partners||[]});
+  }catch(e){set({err:e.message})}
+}
+async function updateStatus(id,status){
+  set({loading:true,err:null});
+  try{await api('PATCH','/orders/'+id+'/status',{status});set({loading:false,ok:'Updated to '+status.replace(/_/g,' ')});loadAll()}
+  catch(e){set({loading:false,err:e.message})}
+}
+async function doLogin(e){
+  e.preventDefault();const f=new FormData(e.target);
+  set({loading:true,err:null});
+  try{
+    const d=await api('POST','/auth/login',{phone:f.get('phone'),password:f.get('password')});
+    localStorage.setItem('pm_token',d.token);localStorage.setItem('pm_user',JSON.stringify(d.user));
+    set({token:d.token,user:d.user,loading:false});loadAll();
+  }catch(e){set({loading:false,err:e.message})}
+}
+function logout(){localStorage.clear();set({token:null,user:null})}
+
+function renderAuth(){
+  return`<div class="aw"><div class="ac">
+  <div style="font-size:22px;font-weight:800;color:var(--amber);margin-bottom:4px">Partner Portal</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:24px">ParcelMate courier partner</div>
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <form onsubmit="doLogin(event)">
+    <div class="field"><label>Phone</label><input name="phone" value="9876543213" required></div>
+    <div class="field"><label>Password</label><input name="password" type="password" value="password123" required></div>
+    <button class="btn btn-a btn-full" ${S.loading?'disabled':''}>${S.loading?'Logging in…':'Login to Portal'}</button>
+  </form>
+  </div></div>`;
+}
+
+function renderDash(){
+  const transit=S.orders.filter(o=>o.status==='in_transit');
+  const outDel=S.orders.filter(o=>o.status==='out_for_delivery');
+  const delivered=S.orders.filter(o=>o.status==='delivered');
+  const atRisk=S.orders.filter(o=>!['delivered','cancelled'].includes(o.status)&&daysSince(o.created_at)>3);
+  const p=S.partners[0];
+  return`
+  ${p?`<div class="card" style="margin-bottom:20px;border-color:var(--amber);background:var(--amberL)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-size:18px;font-weight:800">${p.name}</div>
+        <div class="small muted">${p.type} · ${p.cities_served}</div></div>
+      <div style="text-align:right;font-size:13px">
+        <div>⭐ ${p.rating} rating</div>
+        <div class="small muted">₹${p.base_price} base · ₹${p.price_per_kg}/kg</div>
+      </div>
+    </div>
+  </div>`:''}
+  <div class="stats">
+    <div class="stat"><div class="stat-val" style="color:var(--amber)">${transit.length}</div><div class="stat-lbl">In transit</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--purple)">${outDel.length}</div><div class="stat-lbl">Out for delivery</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--green)">${delivered.length}</div><div class="stat-lbl">Delivered</div></div>
+  </div>
+  ${atRisk.length>0?`<div class="alert alert-e" style="margin-bottom:16px">⚠ ${atRisk.length} shipments are at risk (>3 days old and not delivered)</div>`:''}
+  <div class="card">
+    <div class="card-title">Shipments requiring action</div>
+    ${transit.length===0?`<div class="empty" style="padding:24px">No shipments in transit</div>`:`
+    <div class="tw"><table>
+      <thead><tr><th>Order #</th><th>From</th><th>To</th><th>Receiver</th><th>Days</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${transit.map(o=>{
+        const days=daysSince(o.created_at);
+        const cls=days<=2?'sla-g':days<=4?'sla-w':'sla-b';
+        return`<tr>
+          <td><strong>${o.order_number}</strong></td>
+          <td>${o.pickup_city}</td>
+          <td>${o.receiver_city}</td>
+          <td>${o.receiver_name}</td>
+          <td class="${cls}">${days}d${days>4?' ⚠':''}</td>
+          <td>${badge(o.status)}</td>
+          <td><button class="btn btn-a btn-sm" onclick="updateStatus('${o.id}','out_for_delivery')" ${S.loading?'disabled':''}>→ Out for delivery</button></td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table></div>`}
+  </div>`;
+}
+
+function renderShipments(){
+  const all=S.orders.filter(o=>['in_transit','out_for_delivery','delivered'].includes(o.status));
+  return`
+  <div style="font-size:20px;font-weight:700;margin-bottom:20px">All shipments (${all.length})</div>
+  ${S.ok?`<div class="alert alert-s">${S.ok}</div>`:''}
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>Order #</th><th>Route</th><th>Receiver</th><th>Weight</th><th>Status</th><th>Created</th><th>SLA</th></tr></thead>
+      <tbody>${all.map(o=>{
+        const days=daysSince(o.created_at);
+        const cls=days<=2?'sla-g':days<=4?'sla-w':'sla-b';
+        return`<tr>
+          <td><strong>${o.order_number}</strong></td>
+          <td>${o.pickup_city}→${o.receiver_city}</td>
+          <td>${o.receiver_name}</td>
+          <td>${o.parcel_weight}kg</td>
+          <td>${badge(o.status)}</td>
+          <td class="muted small">${fmt(o.created_at)}</td>
+          <td class="${cls}">${days}d${days>4?' ⚠':''}</td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderSLA(){
+  const all=S.orders.filter(o=>['in_transit','out_for_delivery','delivered'].includes(o.status));
+  const onTime=all.filter(o=>o.status==='delivered'&&daysSince(o.created_at)<=4).length;
+  const late=all.filter(o=>o.status==='delivered'&&daysSince(o.created_at)>4).length;
+  const atRisk=all.filter(o=>o.status!=='delivered'&&daysSince(o.created_at)>3).length;
+  const total=onTime+late||1;
+  const rate=Math.round((onTime/total)*100);
+  return`
+  <div style="font-size:20px;font-weight:700;margin-bottom:20px">SLA Performance</div>
+  <div class="stats">
+    <div class="stat"><div class="stat-val" style="color:var(--green)">${rate}%</div><div class="stat-lbl">On-time rate</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--teal)">${onTime}</div><div class="stat-lbl">On time</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--coral)">${atRisk}</div><div class="stat-lbl">At risk</div></div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Overall SLA score</div>
+    <div style="font-size:36px;font-weight:800;color:${rate>=80?'var(--green)':rate>=60?'var(--amber)':'var(--coral)'}">${rate}%</div>
+    <div class="sla-bar" style="margin-top:12px"><div class="sla-fill" style="width:${rate}%;background:${rate>=80?'var(--teal)':rate>=60?'var(--amber)':'var(--coral)'}"></div></div>
+    <div class="small muted" style="margin-top:8px">${onTime} on time · ${late} late · ${atRisk} at risk</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Delivery SLA targets</div>
+    ${[['Same city','Within 1 day','var(--greenL)','var(--green)'],['Metro to metro','2–3 days','var(--purpleL)','var(--purple)'],['Tier 2 cities','3–5 days','var(--amberL)','var(--amber)'],['Remote/rural','5–7 days','var(--coralL)','var(--coral)']].map(([label,target,bg,col])=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:${bg};border-radius:var(--r);margin-bottom:8px">
+        <span style="font-weight:500">${label}</span>
+        <strong style="color:${col}">${target}</strong>
+      </div>`).join('')}
+  </div>`;
+}
+
+const navItems=[
+  {id:'dashboard',icon:'⊞',label:'Dashboard'},
+  {id:'shipments',icon:'📦',label:'Shipments'},
+  {id:'sla',icon:'⏱',label:'SLA tracker'},
+];
+
+function draw(){
+  const root=document.getElementById('root');
+  if(!S.token||!S.user){root.innerHTML=renderAuth();return}
+  let content='';
+  if(S.view==='dashboard')content=renderDash();
+  else if(S.view==='shipments')content=renderShipments();
+  else if(S.view==='sla')content=renderSLA();
+
+  root.innerHTML=`
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo"><div class="logo-name">ParcelMate</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Partner portal</div></div>
+      <nav class="nav">
+        ${navItems.map(n=>`<div class="ni ${S.view===n.id?'on':''}" onclick="navigate('${n.id}')">
+          <span style="font-size:16px;width:20px;text-align:center">${n.icon}</span><span>${n.label}</span>
+        </div>`).join('')}
+      </nav>
+      <div class="user-box">
+        <div style="font-weight:600;font-size:13px">${S.user.name}</div>
+        <div class="small muted" style="margin-top:2px">Partner account</div>
+        <div class="logout" onclick="logout()">Sign out</div>
+      </div>
+    </aside>
+    <main class="main">
+      ${S.ok?`<div class="alert alert-s" style="margin-bottom:16px">${S.ok}</div>`:''}
+      ${content}
+    </main>
+  </div>`;
+  if(S.ok)setTimeout(()=>set({ok:null}),3000);
+}
+
+function navigate(v){set({view:v,err:null,ok:null});loadAll()}
+draw();
+if(S.token&&S.user)loadAll();
+</script>
+</body>
+</html>

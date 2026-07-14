@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ParcelMate — Launch Pad</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f7f7f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px}
+.logo{font-size:36px;font-weight:800;color:#534AB7;text-align:center}
+.tagline{color:#6b6b67;font-size:15px;margin-top:8px;text-align:center}
+.api-status{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:16px;margin-bottom:48px;font-size:13px;color:#6b6b67}
+.dot{width:9px;height:9px;border-radius:50%;background:#ccc;flex-shrink:0}
+.dot.green{background:#1D9E75;animation:pulse 2s infinite}
+.dot.red{background:#D85A30}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;max-width:700px;width:100%}
+@media(max-width:580px){.grid{grid-template-columns:1fr}}
+.portal{background:#fff;border:1.5px solid #e5e3dc;border-radius:16px;padding:28px;text-decoration:none;color:inherit;display:block;transition:all .2s;cursor:pointer}
+.portal:hover{transform:translateY(-4px);box-shadow:0 12px 32px rgba(0,0,0,.1);border-color:#534AB7}
+.p-icon{font-size:38px;margin-bottom:14px}
+.p-name{font-size:18px;font-weight:700;margin-bottom:6px}
+.p-desc{font-size:13px;color:#6b6b67;line-height:1.55;margin-bottom:14px}
+.p-creds{background:#f7f7f5;border-radius:8px;padding:10px 12px;font-size:12px;font-family:monospace;line-height:1.7;color:#534AB7}
+.p-tag{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-top:12px;text-transform:uppercase;letter-spacing:.5px}
+.t-p{background:#EEEDFE;color:#534AB7}
+.t-t{background:#E1F5EE;color:#1D9E75}
+.t-a{background:#FAEEDA;color:#BA7517}
+.t-c{background:#FAECE7;color:#D85A30}
+.flow{max-width:700px;width:100%;margin-top:48px}
+.flow-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b6b67;margin-bottom:16px;text-align:center}
+.flow-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:580px){.flow-steps{grid-template-columns:1fr}}
+.flow-step{background:#fff;border:1.5px solid #e5e3dc;border-radius:12px;padding:16px;text-align:center}
+.flow-num{font-size:24px;font-weight:800;color:#534AB7;margin-bottom:6px}
+.flow-text{font-size:12px;color:#6b6b67;line-height:1.55}
+.cmd-box{max-width:700px;width:100%;margin-top:32px;background:#fff;border:1.5px solid #e5e3dc;border-radius:12px;padding:20px}
+.cmd-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b6b67;margin-bottom:12px}
+.cmd{background:#1a1a18;color:#e5e3dc;font-family:monospace;font-size:13px;padding:12px 16px;border-radius:8px;margin-bottom:6px;line-height:1.6}
+.cmd span{color:#1D9E75}
+.promo-banner{max-width:700px;width:100%;margin-top:16px;background:#E1F5EE;border:1.5px solid #97c459;border-radius:12px;padding:14px 20px;text-align:center;font-size:13px;color:#3B6D11;font-weight:500}
+</style>
+</head>
+<body>
+
+<div class="logo">📦 ParcelMate</div>
+<div class="tagline">Complete parcel pickup & delivery platform — all 4 layers</div>
+<div class="api-status">
+  <div class="dot" id="dot"></div>
+  <span id="status-text">Checking backend…</span>
+</div>
+
+<div class="grid">
+  <a class="portal" href="frontend/user/index.html">
+    <div class="p-icon">📦</div>
+    <div class="p-name">Customer App</div>
+    <div class="p-desc">Book pickups, pay with Razorpay, track parcels live, view OTPs, promo codes.</div>
+    <div class="p-creds">9876543210 / password123<br>9876543211 / password123</div>
+    <div class="p-tag t-p">Layer 1 — Customer</div>
+  </a>
+
+  <a class="portal" href="frontend/admin/index.html">
+    <div class="p-icon">⊞</div>
+    <div class="p-name">Admin Dashboard</div>
+    <div class="p-desc">Full control — revenue charts, all orders, assign boys, users, partners, refunds.</div>
+    <div class="p-creds">9876543213 / password123</div>
+    <div class="p-tag t-c">Layer 4 — Management</div>
+  </a>
+
+  <a class="portal" href="frontend/boy/index.html">
+    <div class="p-icon">🚚</div>
+    <div class="p-name">Delivery Boy App</div>
+    <div class="p-desc">Accept deliveries, verify OTP, step through status, track earnings per order.</div>
+    <div class="p-creds">9876543212 / password123</div>
+    <div class="p-tag t-t">Layer 2 — Agent</div>
+  </a>
+
+  <a class="portal" href="frontend/partner/index.html">
+    <div class="p-icon">🤝</div>
+    <div class="p-name">Partner Portal</div>
+    <div class="p-desc">DTDC / India Post — manage shipments, update transit, track SLA performance.</div>
+    <div class="p-creds">9876543213 / password123</div>
+    <div class="p-tag t-a">Layer 3 — Partner</div>
+  </a>
+</div>
+
+<div class="promo-banner">
+  🎁 Test promo codes: <strong>FIRST50</strong> (50% off) &nbsp;·&nbsp; <strong>SAVE20</strong> (₹20 flat off)
+</div>
+
+<div class="flow">
+  <div class="flow-title">Test the complete delivery flow</div>
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-text"><strong>Customer</strong> books a parcel — gets a 6-digit Pickup OTP and pays via Razorpay</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-text"><strong>Delivery boy</strong> accepts, enters OTP to confirm pickup, steps through to delivery</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-text"><strong>Admin</strong> monitors all orders, revenue, assigns boys, issues refunds</div>
+    </div>
+  </div>
+</div>
+
+<div class="cmd-box">
+  <div class="cmd-title">Start the backend (required)</div>
+  <div class="cmd"><span>cd</span> backend</div>
+  <div class="cmd"><span>npm install</span></div>
+  <div class="cmd"><span>node</span> config/setupDb.js &nbsp;&nbsp;<span style="color:#BA7517"># first time only</span></div>
+  <div class="cmd"><span>npm run dev</span> &nbsp;&nbsp;<span style="color:#BA7517"># starts on port 3001</span></div>
+  <div style="margin-top:12px;font-size:12px;color:#6b6b67">
+    Then open this page in your browser. The green dot above confirms backend is running.<br>
+    React Native apps: <code style="background:#f7f7f5;padding:2px 6px;border-radius:4px">mobile/ParcelMateUser</code> and <code style="background:#f7f7f5;padding:2px 6px;border-radius:4px">mobile/ParcelMateBoy</code>
+  </div>
+</div>
+
+<script>
+async function checkApi() {
+  const dot = document.getElementById('dot');
+  const txt = document.getElementById('status-text');
+  try {
+    const r = await fetch('http://localhost:3001/health');
+    const d = await r.json();
+    dot.className = 'dot green';
+    txt.textContent = `Backend running — ${d.app} v${d.version} · Payment: ${d.payment} · SMS: ${d.sms}`;
+  } catch {
+    dot.className = 'dot red';
+    txt.textContent = 'Backend offline — run: cd backend && npm run dev';
+    txt.style.color = '#D85A30';
+  }
+}
+checkApi();
+setInterval(checkApi, 5000);
+</script>
+</body>
+</html>

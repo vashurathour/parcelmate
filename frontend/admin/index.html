@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ParcelMate — Admin</title>
+<link rel="stylesheet" href="../shared.css">
+<style>
+.app{display:flex;min-height:100vh}
+.sidebar{width:224px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:100}
+.main{margin-left:224px;flex:1;padding:28px;max-width:1100px}
+.logo{padding:20px;border-bottom:1px solid var(--border)}
+.logo-name{font-size:18px;font-weight:800;color:var(--purple)}
+.logo-badge{font-size:10px;background:var(--coral);color:#fff;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+.nav{padding:12px 8px;flex:1;overflow-y:auto}
+.ni{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r);cursor:pointer;color:var(--muted);font-size:13px;transition:.15s;margin-bottom:2px}
+.ni:hover{background:var(--bg);color:var(--text)}
+.ni.on{background:var(--purpleL);color:var(--purpleD);font-weight:600}
+.ni-icon{font-size:16px;width:20px;text-align:center}
+.user-box{padding:16px 20px;border-top:1px solid var(--border)}
+.logout{font-size:12px;color:var(--coral);cursor:pointer;margin-top:6px}
+/* Stats */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+@media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:18px}
+.stat-val{font-size:26px;font-weight:800;line-height:1;margin-bottom:5px}
+.stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.stat-sub{font-size:11px;color:var(--hint);margin-top:3px}
+.cv{color:var(--purple)} .ct{color:var(--teal)} .ca{color:var(--amber)} .cc{color:var(--coral)} .cg{color:var(--green)}
+/* Page header */
+.ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.pt{font-size:20px;font-weight:700}
+.ps{font-size:13px;color:var(--muted);margin-top:2px}
+/* Revenue chart */
+.rev-chart{display:flex;align-items:flex-end;gap:6px;height:80px;padding:8px 0}
+.rev-bar{flex:1;background:var(--purpleL);border-radius:4px 4px 0 0;min-width:20px;position:relative;transition:.3s;cursor:default}
+.rev-bar:hover{background:var(--purple)}
+.rev-bar-val{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--muted);white-space:nowrap}
+.rev-bar-lbl{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--hint);white-space:nowrap}
+/* Filter bar */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.filter-bar select,.filter-bar input{padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;background:var(--surface);outline:none}
+.filter-bar select:focus,.filter-bar input:focus{border-color:var(--purple)}
+/* Auth */
+.aw{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.ac{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:36px;width:380px;box-shadow:var(--shadow)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const API='http://localhost:3001/api';
+let S={
+  token:localStorage.getItem('pm_token'),
+  user:JSON.parse(localStorage.getItem('pm_user')||'null'),
+  view:'dashboard',
+  analytics:null,orders:[],users:[],partners:[],payments:[],
+  selOrder:null,modal:null,
+  filter:{status:'',city:''},
+  loading:false,err:null,ok:null
+};
+function set(p){Object.assign(S,p);draw()}
+async function api(m,path,body){
+  const r=await fetch(API+path,{method:m,headers:{'Content-Type':'application/json',...(S.token?{Authorization:'Bearer '+S.token}:{})},body:body?JSON.stringify(body):undefined});
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+function fmt(dt){if(!dt)return'—';return new Date(dt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}
+function rup(n){return'₹'+Math.round(n||0).toLocaleString()}
+function badge(s){return`<span class="badge s-${s}">${(s||'').replace(/_/g,' ')}</span>`}
+
+async function loadAll(){
+  try{
+    const[a,o,u,p]=await Promise.all([
+      api('GET','/analytics/summary'),
+      api('GET','/orders?limit=200'),
+      api('GET','/users'),
+      api('GET','/partners'),
+    ]);
+    set({analytics:a,orders:o.orders||[],users:u.users||[],partners:p.partners||[]});
+  }catch(e){set({err:e.message})}
+}
+async function openOrder(id){
+  try{const d=await api('GET','/orders/'+id);set({selOrder:d,modal:'order'})}catch(e){set({err:e.message})}
+}
+async function advanceStatus(orderId,status,otp){
+  try{
+    await api('PATCH','/orders/'+orderId+'/status',{status,otp});
+    set({ok:'Order updated → '+status.replace(/_/g,' '),modal:null});
+    loadAll();
+  }catch(e){set({err:e.message})}
+}
+async function assignBoy(orderId){
+  const boyId=document.getElementById('boy-sel')?.value;
+  if(!boyId){set({err:'Select a delivery boy first'});return}
+  await advanceStatus(orderId,'confirmed');
+}
+async function toggleUser(id){
+  try{await api('PATCH','/users/'+id+'/toggle');set({ok:'User status updated'});loadAll()}catch(e){set({err:e.message})}
+}
+async function issueRefund(orderId){
+  if(!confirm('Issue full refund for this order?'))return;
+  try{const d=await api('POST','/payments/refund',{order_id:orderId,reason:'admin_refund'});set({ok:'Refund issued: '+d.refund_id,modal:null})}catch(e){set({err:e.message})}
+}
+async function doLogin(e){
+  e.preventDefault();const f=new FormData(e.target);
+  set({loading:true,err:null});
+  try{
+    const d=await api('POST','/auth/login',{phone:f.get('phone'),password:f.get('password')});
+    if(d.user.role!=='admin')throw new Error('Not an admin account. Use 9876543213.');
+    localStorage.setItem('pm_token',d.token);localStorage.setItem('pm_user',JSON.stringify(d.user));
+    set({token:d.token,user:d.user,loading:false});loadAll();
+  }catch(e){set({loading:false,err:e.message})}
+}
+function logout(){localStorage.clear();set({token:null,user:null})}
+
+// ── Renders ──────────────────────────────────────────────────────────────────
+function renderAuth(){
+  return`<div class="aw"><div class="ac">
+  <div style="font-size:24px;font-weight:800;color:var(--purple);margin-bottom:4px">ParcelMate Admin</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:24px">Management dashboard</div>
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <form onsubmit="doLogin(event)">
+    <div class="field"><label>Admin phone</label><input name="phone" value="9876543213" required></div>
+    <div class="field"><label>Password</label><input name="password" type="password" value="password123" required></div>
+    <button class="btn btn-p btn-full" ${S.loading?'disabled':''}>${S.loading?'Logging in…':'Login as Admin'}</button>
+  </form>
+  </div></div>`;
+}
+
+function renderDash(){
+  const a=S.analytics;
+  if(!a)return`<div class="loading"><div class="spin"></div><br>Loading dashboard...</div>`;
+  const{summary:s,recentOrders:ro,statusBreakdown:sb,topCities:tc,boyPerformance:bp,revenueByDay:rv}=a;
+  const maxRev=Math.max(...(rv||[]).map(r=>r.revenue),1);
+  return`
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-val cv">${s.totalOrders}</div><div class="stat-lbl">Total orders</div><div class="stat-sub">Today: ${s.todayOrders}</div></div>
+    <div class="stat-card"><div class="stat-val ca">${s.pendingOrders}</div><div class="stat-lbl">Pending</div><div class="stat-sub">Confirmed: ${s.confirmedOrders}</div></div>
+    <div class="stat-card"><div class="stat-val ct">${s.inTransit}</div><div class="stat-lbl">In transit</div><div class="stat-sub">Delivered: ${s.delivered}</div></div>
+    <div class="stat-card"><div class="stat-val cg">${rup(s.totalRevenue)}</div><div class="stat-lbl">Total revenue</div><div class="stat-sub">Today: ${rup(s.todayRevenue)}</div></div>
+    <div class="stat-card"><div class="stat-val cv">${s.totalCustomers}</div><div class="stat-lbl">Customers</div></div>
+    <div class="stat-card"><div class="stat-val ct">${s.activeBoys}/${s.totalBoys}</div><div class="stat-lbl">Active boys</div></div>
+    <div class="stat-card"><div class="stat-val cc">${s.cancelled}</div><div class="stat-lbl">Cancelled</div></div>
+    <div class="stat-card"><div class="stat-val ca">${rup(s.pendingPayouts)}</div><div class="stat-lbl">Pending payouts</div></div>
+  </div>
+
+  ${rv&&rv.length?`<div class="card" style="margin-bottom:16px">
+    <div class="card-title">Revenue last 7 days</div>
+    <div class="rev-chart">
+      ${rv.map(r=>`<div class="rev-bar" style="height:${Math.max(8,Math.round((r.revenue/maxRev)*100))}%">
+        <span class="rev-bar-val">${rup(r.revenue)}</span>
+        <span class="rev-bar-lbl">${r.day?.slice(5)}</span>
+      </div>`).join('')}
+    </div>
+    <div style="height:20px"></div>
+  </div>`:''}
+
+  <div class="g2" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-title">Order status</div>
+      ${sb.map(r=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+        ${badge(r.status)}<strong>${r.count}</strong>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="card-title">Top cities</div>
+      ${tc.map((c,i)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span><strong style="color:var(--purple)">#${i+1}</strong> ${c.city}</span>
+        <span>${c.orders} orders · ${rup(c.revenue)}</span>
+      </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Recent orders
+      <button class="btn btn-o btn-sm" onclick="navigate('orders')">View all →</button>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>Order #</th><th>Sender</th><th>Route</th><th>Status</th><th>Amount</th><th>Payment</th><th>Date</th><th></th></tr></thead>
+      <tbody>${ro.map(o=>`<tr>
+        <td><strong>${o.order_number}</strong></td>
+        <td>${o.sender_name||'—'}</td>
+        <td class="muted small">${o.receiver_city||'—'}</td>
+        <td>${badge(o.status)}</td>
+        <td>${rup(o.total_price)}</td>
+        <td>${badge(o.payment_status||'pending')}</td>
+        <td class="muted small">${fmt(o.created_at)}</td>
+        <td><button class="btn btn-o btn-sm" onclick="openOrder('${o.id}')">Manage</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Delivery boy performance</div>
+    <div class="tw"><table>
+      <thead><tr><th>Name</th><th>Deliveries</th><th>Earnings</th><th>Rating</th></tr></thead>
+      <tbody>${bp.map(b=>`<tr>
+        <td><strong>${b.name}</strong></td>
+        <td>${b.total_deliveries}</td>
+        <td>${rup(b.earnings)}</td>
+        <td>⭐ ${(b.rating||5).toFixed(1)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderOrders(){
+  const filtered=S.orders.filter(o=>{
+    if(S.filter.status&&o.status!==S.filter.status)return false;
+    if(S.filter.city&&!o.pickup_city?.toLowerCase().includes(S.filter.city.toLowerCase()))return false;
+    return true;
+  });
+  return`
+  <div class="ph"><div><div class="pt">All orders</div><div class="ps">${filtered.length} of ${S.orders.length} total</div></div></div>
+  ${S.ok?`<div class="alert alert-s">${S.ok}</div>`:''}
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <div class="filter-bar">
+    <select onchange="S.filter.status=this.value;draw()">
+      <option value="">All status</option>
+      ${['pending','confirmed','picked_up','in_transit','out_for_delivery','delivered','cancelled'].map(s=>`<option value="${s}" ${S.filter.status===s?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}
+    </select>
+    <input placeholder="Filter by city..." value="${S.filter.city}" style="width:160px" oninput="S.filter.city=this.value;draw()">
+    <button class="btn btn-o btn-sm" onclick="S.filter={status:'',city:''};draw()">Clear</button>
+  </div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>Order #</th><th>Sender</th><th>Receiver</th><th>Route</th><th>Status</th><th>Amount</th><th>Payment</th><th>Boy</th><th>Date</th><th></th></tr></thead>
+      <tbody>${filtered.map(o=>`<tr>
+        <td><strong>${o.order_number}</strong></td>
+        <td>${o.sender_name||'—'}</td>
+        <td>${o.receiver_name}</td>
+        <td class="muted small">${o.pickup_city}→${o.receiver_city}</td>
+        <td>${badge(o.status)}</td>
+        <td>${rup(o.total_price)}</td>
+        <td>${badge(o.payment_status||'pending')}</td>
+        <td>${o.boy_name||`<span class="muted">—</span>`}</td>
+        <td class="muted small">${fmt(o.created_at)}</td>
+        <td><button class="btn btn-o btn-sm" onclick="openOrder('${o.id}')">Manage</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderUsers(){
+  const customers=S.users.filter(u=>u.role==='customer').length;
+  const boys=S.users.filter(u=>u.role==='delivery_boy').length;
+  return`
+  <div class="ph"><div><div class="pt">Users</div><div class="ps">${S.users.length} total · ${customers} customers · ${boys} delivery boys</div></div></div>
+  ${S.ok?`<div class="alert alert-s">${S.ok}</div>`:''}
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>Name</th><th>Phone</th><th>Role</th><th>City</th><th>Deliveries</th><th>Rating</th><th>Wallet</th><th>Status</th><th></th></tr></thead>
+      <tbody>${S.users.map(u=>`<tr>
+        <td><strong>${u.name}</strong></td>
+        <td style="font-family:monospace;font-size:12px">${u.phone}</td>
+        <td>${badge(u.role)}</td>
+        <td>${u.city||'—'}</td>
+        <td>${u.total_deliveries||0}</td>
+        <td>${u.rating?'⭐'+u.rating:'—'}</td>
+        <td>${rup(u.wallet_balance)}</td>
+        <td><span class="badge" style="background:${u.is_active?'var(--greenL)':'#fee2e2'};color:${u.is_active?'var(--green)':'#991b1b'}">${u.is_active?'Active':'Suspended'}</span></td>
+        <td><button class="btn btn-o btn-sm" onclick="toggleUser('${u.id}')">${u.is_active?'Suspend':'Activate'}</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderPartners(){
+  return`
+  <div class="ph"><div><div class="pt">Courier partners</div><div class="ps">${S.partners.length} partners</div></div></div>
+  <div class="g2">
+    ${S.partners.map(p=>`<div class="card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:14px">
+        <div><div style="font-size:16px;font-weight:700">${p.name}</div>
+          <div class="small muted">${p.type}</div></div>
+        <span class="badge" style="background:var(--greenL);color:var(--green)">Active</span>
+      </div>
+      ${[['Coverage',p.cities_served],['Base price',rup(p.base_price)],['Per kg',rup(p.price_per_kg)+'/kg'],['Avg days',p.avg_delivery_days+' days'],['Rating','⭐ '+p.rating],['Email',p.contact_email||'—']].map(([k,v])=>`
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+          <span class="muted">${k}</span><span>${v}</span>
+        </div>`).join('')}
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderOrderModal(){
+  if(!S.selOrder)return'';
+  const{order:o,tracking:tr}=S.selOrder;
+  const steps=['pending','confirmed','picked_up','in_transit','out_for_delivery','delivered'];
+  const cur=steps.indexOf(o.status);
+  const next=steps[cur+1];
+  const boys=S.users.filter(u=>u.role==='delivery_boy');
+  return`
+  <div class="modal-hd">
+    <div class="modal-title">Order ${o.order_number}</div>
+    <span class="modal-x" onclick="set({modal:null})">×</span>
+  </div>
+  <div class="modal-body">
+    <div style="margin-bottom:14px">${badge(o.status)} ${badge(o.payment_status||'pending')}</div>
+
+    <!-- Status stepper -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px">
+      ${steps.map((s,i)=>`<span style="padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${i<cur?'var(--purpleL)':i===cur?'var(--purple)':'var(--bg)'};color:${i<cur?'var(--purple)':i===cur?'#fff':'var(--hint)'}">${s.replace(/_/g,' ')}</span>`).join('')}
+    </div>
+
+    <!-- Admin actions -->
+    ${o.status==='pending'?`<div style="background:var(--amberL);border-radius:var(--r);padding:14px;margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;color:var(--amber);margin-bottom:8px">Assign delivery boy</div>
+      <div style="display:flex;gap:8px">
+        <select id="boy-sel" style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px">
+          <option value="">Select boy...</option>
+          ${boys.map(b=>`<option value="${b.id}">${b.name} — ${b.city} ⭐${b.rating}</option>`).join('')}
+        </select>
+        <button class="btn btn-p btn-sm" onclick="assignBoy('${o.id}')">Assign</button>
+      </div>
+    </div>`:''}
+    ${next&&o.status!=='pending'&&o.status!=='delivered'?`<div style="margin-bottom:14px">
+      <button class="btn btn-p btn-sm" onclick="advanceStatus('${o.id}','${next}')">
+        Force advance → ${next.replace(/_/g,' ')}
+      </button>
+    </div>`:''}
+    ${o.payment_status==='completed'?`<div style="margin-bottom:14px">
+      <button class="btn btn-d btn-sm" onclick="issueRefund('${o.id}')">Issue refund</button>
+    </div>`:''}
+
+    <!-- Details -->
+    <div class="g2" style="margin-bottom:14px">
+      <div style="font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">SENDER</div>
+        <div><strong>${o.sender_name||'—'}</strong></div>
+        <div class="small muted">${o.pickup_address}, ${o.pickup_city}</div>
+      </div>
+      <div style="font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">RECEIVER</div>
+        <div><strong>${o.receiver_name}</strong> · ${o.receiver_phone}</div>
+        <div class="small muted">${o.receiver_address}, ${o.receiver_city}</div>
+      </div>
+    </div>
+    <div class="g2" style="margin-bottom:14px">
+      <div style="font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">PARCEL</div>
+        <div>${o.parcel_type} · ${o.parcel_weight}kg${o.is_fragile?' · ⚠ Fragile':''}</div>
+        <div class="small muted">${o.parcel_description||'No description'}</div>
+      </div>
+      <div style="font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">PRICE</div>
+        <div style="font-size:18px;font-weight:700;color:var(--purple)">${rup(o.total_price)}</div>
+        <div class="small muted">Subtotal ${rup(o.subtotal)} + GST ${rup(o.tax)}</div>
+      </div>
+    </div>
+    <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px;margin-bottom:14px">
+      <strong>OTPs —</strong> Pickup: <code style="background:var(--purpleL);padding:2px 8px;border-radius:4px;color:var(--purple)">${o.pickup_otp}</code>
+      &nbsp;&nbsp; Delivery: <code style="background:var(--tealL);padding:2px 8px;border-radius:4px;color:var(--teal)">${o.delivery_otp}</code>
+    </div>
+    ${o.boy_name?`<div style="background:var(--tealL);padding:12px;border-radius:var(--r);margin-bottom:14px;font-size:13px">
+      <strong style="color:var(--teal)">Assigned boy:</strong> ${o.boy_name}
+    </div>`:''}
+
+    <!-- Tracking -->
+    <div class="muted small" style="text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:10px">Tracking history</div>
+    <div class="timeline">
+      ${tr.map((e,i)=>`<div class="t-item">
+        <div class="t-dot ${i===tr.length-1?'active':'done'}"></div>
+        <div style="font-weight:600;font-size:13px">${e.title}</div>
+        <div class="small muted">${e.description}</div>
+        <div style="font-size:11px;color:var(--hint)">${e.location} · ${fmt(e.created_at)}</div>
+      </div>`).join('')}
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-o" onclick="set({modal:null})">Close</button></div>`;
+}
+
+const navItems=[
+  {id:'dashboard',icon:'⊞',label:'Dashboard'},
+  {id:'orders',icon:'📦',label:'All orders'},
+  {id:'users',icon:'👥',label:'Users'},
+  {id:'partners',icon:'🤝',label:'Partners'},
+];
+
+function draw(){
+  const root=document.getElementById('root');
+  if(!S.token||!S.user){root.innerHTML=renderAuth();return}
+  let content='';
+  if(S.view==='dashboard')content=renderDash();
+  else if(S.view==='orders')content=renderOrders();
+  else if(S.view==='users')content=renderUsers();
+  else if(S.view==='partners')content=renderPartners();
+
+  root.innerHTML=`
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-name">ParcelMate <span class="logo-badge">ADMIN</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Management panel</div>
+      </div>
+      <nav class="nav">
+        ${navItems.map(n=>`<div class="ni ${S.view===n.id?'on':''}" onclick="navigate('${n.id}')">
+          <span class="ni-icon">${n.icon}</span><span>${n.label}</span>
+        </div>`).join('')}
+      </nav>
+      <div class="user-box">
+        <div style="font-weight:600;font-size:13px">${S.user.name}</div>
+        <div style="margin-top:4px">${'<span class="badge s-admin">admin</span>'}</div>
+        <div class="logout" onclick="logout()">Sign out</div>
+      </div>
+    </aside>
+    <main class="main">
+      ${S.ok?`<div class="alert alert-s" style="margin-bottom:16px">${S.ok}</div>`:''}
+      ${S.err&&S.view!=='orders'?`<div class="alert alert-e" style="margin-bottom:16px">${S.err}</div>`:''}
+      ${content}
+    </main>
+  </div>
+  ${S.modal==='order'?`<div class="modal-bg" onclick="if(event.target===this)set({modal:null})"><div class="modal">${renderOrderModal()}</div></div>`:''}`;
+  if(S.ok)setTimeout(()=>set({ok:null}),3500);
+}
+
+function navigate(v){
+  set({view:v,err:null,ok:null,filter:{status:'',city:''}});
+  loadAll();
+}
+
+draw();
+if(S.token&&S.user)loadAll();
+</script>
+</body>
+</html>

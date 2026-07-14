@@ -1,0 +1,177 @@
+{
+  "info": {
+    "name": "ParcelMate API v2.0",
+    "description": "Complete API collection for ParcelMate platform. Import this into Postman to test all endpoints.\n\nSetup:\n1. Start backend: cd backend && npm run dev\n2. Run 'Login Admin' first — token auto-saves\n3. All protected routes use {{token}} automatically",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3001/api" },
+    { "key": "token", "value": "" },
+    { "key": "order_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login — Customer",
+          "event": [{ "listen": "test", "script": { "exec": ["const d = pm.response.json(); if(d.token) { pm.collectionVariables.set('token', d.token); console.log('Token saved'); }"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/auth/login", "body": { "mode": "raw", "raw": "{ \"phone\": \"9876543210\", \"password\": \"password123\" }" } }
+        },
+        {
+          "name": "Login — Admin",
+          "event": [{ "listen": "test", "script": { "exec": ["const d = pm.response.json(); if(d.token) pm.collectionVariables.set('token', d.token);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/auth/login", "body": { "mode": "raw", "raw": "{ \"phone\": \"9876543213\", \"password\": \"password123\" }" } }
+        },
+        {
+          "name": "Login — Delivery Boy",
+          "event": [{ "listen": "test", "script": { "exec": ["const d = pm.response.json(); if(d.token) pm.collectionVariables.set('token', d.token);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/auth/login", "body": { "mode": "raw", "raw": "{ \"phone\": \"9876543212\", \"password\": \"password123\" }" } }
+        },
+        {
+          "name": "Register new user",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/auth/register", "body": { "mode": "raw", "raw": "{ \"name\": \"Test User\", \"phone\": \"9800000001\", \"password\": \"password123\", \"city\": \"Ludhiana\" }" } }
+        },
+        {
+          "name": "Get my profile",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/auth/me" }
+        },
+        {
+          "name": "Update profile",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/auth/profile", "body": { "mode": "raw", "raw": "{ \"city\": \"Delhi\" }" } }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "List all orders",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/orders" }
+        },
+        {
+          "name": "List orders — by status",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": { "raw": "{{base_url}}/orders?status=pending", "query": [{ "key": "status", "value": "pending" }] } }
+        },
+        {
+          "name": "Price estimate",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/estimate", "body": { "mode": "raw", "raw": "{ \"from_city\": \"Ludhiana\", \"to_city\": \"Delhi\", \"weight\": 0.5, \"parcel_type\": \"book\", \"is_fragile\": false, \"promo_code\": \"FIRST50\" }" } }
+        },
+        {
+          "name": "Create order",
+          "event": [{ "listen": "test", "script": { "exec": ["const d = pm.response.json(); if(d.order?.id) pm.collectionVariables.set('order_id', d.order.id);"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders", "body": { "mode": "raw", "raw": "{\n  \"receiver_name\": \"Test Receiver\",\n  \"receiver_phone\": \"9800000000\",\n  \"receiver_address\": \"123 MG Road, Connaught Place\",\n  \"receiver_city\": \"Delhi\",\n  \"parcel_type\": \"book\",\n  \"parcel_weight\": 0.5,\n  \"parcel_description\": \"Engineering textbook\",\n  \"pickup_address\": \"45 Civil Lines\",\n  \"pickup_city\": \"Ludhiana\",\n  \"payment_method\": \"online\",\n  \"promo_code\": \"SAVE20\"\n}" } }
+        },
+        {
+          "name": "Get order by ID",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/orders/{{order_id}}" }
+        },
+        {
+          "name": "Get order OTP",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/orders/{{order_id}}/otp" }
+        },
+        {
+          "name": "Update status — confirmed",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/{{order_id}}/status", "body": { "mode": "raw", "raw": "{ \"status\": \"confirmed\" }" } }
+        },
+        {
+          "name": "Update status — picked_up (needs OTP)",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/{{order_id}}/status", "body": { "mode": "raw", "raw": "{ \"status\": \"picked_up\", \"otp\": \"PUT_PICKUP_OTP_HERE\" }" } }
+        },
+        {
+          "name": "Update status — in_transit",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/{{order_id}}/status", "body": { "mode": "raw", "raw": "{ \"status\": \"in_transit\" }" } }
+        },
+        {
+          "name": "Update status — out_for_delivery",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/{{order_id}}/status", "body": { "mode": "raw", "raw": "{ \"status\": \"out_for_delivery\" }" } }
+        },
+        {
+          "name": "Update status — delivered (needs OTP)",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/orders/{{order_id}}/status", "body": { "mode": "raw", "raw": "{ \"status\": \"delivered\", \"otp\": \"PUT_DELIVERY_OTP_HERE\" }" } }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Initiate payment",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/payments/initiate", "body": { "mode": "raw", "raw": "{ \"order_id\": \"{{order_id}}\" }" } }
+        },
+        {
+          "name": "Verify payment (mock)",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/payments/verify", "body": { "mode": "raw", "raw": "{\n  \"razorpay_order_id\": \"order_mock_test\",\n  \"razorpay_payment_id\": \"pay_mock_test123\",\n  \"razorpay_signature\": \"mock_signature\",\n  \"order_id\": \"{{order_id}}\"\n}" } }
+        },
+        {
+          "name": "Get payment status",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/payments/status/{{order_id}}" }
+        },
+        {
+          "name": "Issue refund (admin only)",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/payments/refund", "body": { "mode": "raw", "raw": "{ \"order_id\": \"{{order_id}}\", \"reason\": \"customer_request\" }" } }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Admin summary",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/analytics/summary" }
+        },
+        {
+          "name": "Delivery boy stats",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/analytics/boy" }
+        }
+      ]
+    },
+    {
+      "name": "Users & Partners",
+      "item": [
+        {
+          "name": "List all users (admin)",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/users" }
+        },
+        {
+          "name": "List delivery boys (admin)",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/users/boys" }
+        },
+        {
+          "name": "List partners",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/partners" }
+        },
+        {
+          "name": "Validate promo code",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/promo/validate", "body": { "mode": "raw", "raw": "{ \"code\": \"FIRST50\", \"order_total\": 200 }" } }
+        }
+      ]
+    },
+    {
+      "name": "Reviews & Zones",
+      "item": [
+        {
+          "name": "Submit review",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/reviews", "body": { "mode": "raw", "raw": "{ \"order_id\": \"{{order_id}}\", \"reviewee_id\": \"BOY_USER_ID\", \"rating\": 5, \"comment\": \"Fast and professional\" }" } }
+        },
+        {
+          "name": "Get zones",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{base_url}}/zones" }
+        },
+        {
+          "name": "Create zone (admin)",
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "url": "{{base_url}}/zones", "body": { "mode": "raw", "raw": "{ \"name\": \"Zone A - Civil Lines\", \"city\": \"Ludhiana\" }" } }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "http://localhost:3001/health" }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ParcelMate — Delivery Boy</title>
+<link rel="stylesheet" href="../shared.css">
+<style>
+.nav{background:var(--teal);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100}
+.nav-logo{font-size:17px;font-weight:800;color:#fff}
+.nt{padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;color:rgba(255,255,255,.7);transition:.15s}
+.nt:hover{background:rgba(255,255,255,.15)}
+.nt.on{background:rgba(255,255,255,.25);color:#fff}
+.container{max-width:720px;margin:0 auto;padding:20px 16px}
+.aw{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.ac{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:36px;width:100%;max-width:360px}
+/* Order card */
+.oc{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.oc.mine{border-left:4px solid var(--teal)}
+.oc.available{border-left:4px solid var(--amber)}
+.action-box{background:var(--bg);border-radius:var(--r);padding:14px;margin-top:12px}
+.action-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px}
+.otp-input{font-size:24px;letter-spacing:8px;font-family:monospace;font-weight:700;text-align:center;padding:12px;border:2px solid var(--border);border-radius:var(--r);width:100%;outline:none}
+.otp-input:focus{border-color:var(--purple)}
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:16px;text-align:center}
+.stat-val{font-size:26px;font-weight:800}
+.stat-lbl{font-size:11px;color:var(--muted);margin-top:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+/* Earning row */
+.earn-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+.earn-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const API='http://localhost:3001/api';
+let S={
+  token:localStorage.getItem('pm_token'),
+  user:JSON.parse(localStorage.getItem('pm_user')||'null'),
+  view:'active',
+  orders:[],stats:null,
+  selOrder:null,modal:null,
+  loading:false,err:null,ok:null
+};
+function set(p){Object.assign(S,p);draw()}
+async function api(m,path,body){
+  const r=await fetch(API+path,{method:m,headers:{'Content-Type':'application/json',...(S.token?{Authorization:'Bearer '+S.token}:{})},body:body?JSON.stringify(body):undefined});
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+function fmt(dt){if(!dt)return'—';return new Date(dt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}
+function rup(n){return'₹'+Math.round(n||0)}
+function badge(s){return`<span class="badge s-${s}">${(s||'').replace(/_/g,' ')}</span>`}
+
+async function loadOrders(){try{const d=await api('GET','/orders');set({orders:d.orders||[]})}catch(e){set({err:e.message})}}
+async function loadStats(){try{const d=await api('GET','/analytics/boy');set({stats:d})}catch{}}
+async function openOrder(id){try{const d=await api('GET','/orders/'+id);set({selOrder:d,modal:'detail'})}catch(e){set({err:e.message})}}
+
+async function updateStatus(orderId,status,otp){
+  set({loading:true,err:null});
+  try{
+    await api('PATCH','/orders/'+orderId+'/status',{status,otp:otp||undefined});
+    set({loading:false,ok:`Marked as ${status.replace(/_/g,' ')} ✓`,modal:null});
+    loadOrders();loadStats();
+  }catch(e){set({loading:false,err:e.message})}
+}
+async function doPickup(id){
+  const otp=document.getElementById('otp-p-'+id)?.value?.trim();
+  if(!otp||otp.length!==6){set({err:'Enter the 6-digit OTP from the sender'});return}
+  await updateStatus(id,'picked_up',otp);
+}
+async function doDelivery(id){
+  const otp=document.getElementById('otp-d-'+id)?.value?.trim();
+  if(!otp||otp.length!==6){set({err:'Enter the 6-digit OTP from the receiver'});return}
+  await updateStatus(id,'delivered',otp);
+}
+async function doLogin(e){
+  e.preventDefault();const f=new FormData(e.target);
+  set({loading:true,err:null});
+  try{
+    const d=await api('POST','/auth/login',{phone:f.get('phone'),password:f.get('password')});
+    if(d.user.role!=='delivery_boy')throw new Error('Use your delivery boy account');
+    localStorage.setItem('pm_token',d.token);localStorage.setItem('pm_user',JSON.stringify(d.user));
+    set({token:d.token,user:d.user,loading:false});
+    loadOrders();loadStats();
+  }catch(e){set({loading:false,err:e.message})}
+}
+function logout(){localStorage.clear();set({token:null,user:null,orders:[],stats:null})}
+
+function renderAuth(){
+  return`<div class="aw"><div class="ac">
+  <div style="font-size:24px;font-weight:800;color:var(--teal);margin-bottom:4px">ParcelMate</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:24px">Delivery boy login</div>
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <form onsubmit="doLogin(event)">
+    <div class="field"><label>Phone</label><input name="phone" placeholder="9876543212" value="9876543212" required></div>
+    <div class="field"><label>Password</label><input name="password" type="password" placeholder="password123" value="password123" required></div>
+    <button class="btn btn-t btn-full" ${S.loading?'disabled':''}>${S.loading?'Logging in…':'Login'}</button>
+  </form>
+  <div class="small muted" style="text-align:center;margin-top:14px">Test: 9876543212 / password123</div>
+  </div></div>`;
+}
+
+function renderOrderCard(o){
+  const isMine=o.assigned_boy_id===S.user?.id;
+  const earn=rup(Math.round((o.total_price||o.price||0)*0.2));
+  return`
+  <div class="oc ${isMine?'mine':'available'}">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">
+      <div>
+        <div style="font-weight:700;font-size:15px;color:var(--purple)">${o.order_number}</div>
+        <div style="margin-top:4px">${badge(o.status)}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:16px;font-weight:700;color:var(--teal)">${rup(o.total_price||o.price)}</div>
+        <div class="small" style="color:var(--green)">Earn: ${earn}</div>
+        <div class="small muted">${fmt(o.created_at)}</div>
+      </div>
+    </div>
+
+    <div class="g2" style="font-size:12px;margin-bottom:10px">
+      <div>
+        <div class="muted" style="text-transform:uppercase;font-weight:700;font-size:10px;margin-bottom:3px">📍 Pickup</div>
+        <div style="font-weight:500">${o.pickup_address||'—'}</div>
+        <div style="color:var(--purple);font-weight:600">${o.pickup_city}</div>
+      </div>
+      <div>
+        <div class="muted" style="text-transform:uppercase;font-weight:700;font-size:10px;margin-bottom:3px">📦 Deliver to</div>
+        <div style="font-weight:500">${o.receiver_name}</div>
+        <div style="color:var(--teal);font-weight:600">${o.receiver_city}</div>
+      </div>
+    </div>
+
+    <div class="small muted" style="margin-bottom:10px">
+      ${o.parcel_type} · ${o.parcel_weight}kg${o.is_fragile?' · <span style="color:var(--coral)">⚠ Fragile</span>':''}
+      ${o.special_instructions?` · "${o.special_instructions}"`:''}
+    </div>
+
+    <!-- Action area -->
+    ${o.status==='pending'&&!isMine?`
+      <div class="action-box">
+        <div class="action-title">New order — accept to earn ${earn}</div>
+        <button class="btn btn-t" onclick="updateStatus('${o.id}','confirmed')" ${S.loading?'disabled':''}>Accept delivery</button>
+      </div>`:''}
+
+    ${o.status==='confirmed'&&isMine?`
+      <div class="action-box">
+        <div class="action-title">Go to pickup. Ask sender for 6-digit OTP:</div>
+        <input id="otp-p-${o.id}" class="otp-input" maxlength="6" placeholder="— — — — — —" oninput="this.value=this.value.replace(/\D/g,'')">
+        <button class="btn btn-p btn-full" style="margin-top:10px" onclick="doPickup('${o.id}')" ${S.loading?'disabled':''}>
+          ${S.loading?'<span class="spin"></span>':''} Confirm pickup with OTP
+        </button>
+      </div>`:''}
+
+    ${o.status==='picked_up'&&isMine?`
+      <div class="action-box">
+        <div class="action-title">Parcel collected. Drop at courier hub or proceed to deliver.</div>
+        <button class="btn btn-p" onclick="updateStatus('${o.id}','in_transit')" ${S.loading?'disabled':''}>Mark handed to courier</button>
+      </div>`:''}
+
+    ${o.status==='in_transit'&&isMine?`
+      <div class="action-box">
+        <div class="action-title">Parcel in transit. Start last-mile when at destination.</div>
+        <button class="btn btn-p" onclick="updateStatus('${o.id}','out_for_delivery')" ${S.loading?'disabled':''}>Start delivery</button>
+      </div>`:''}
+
+    ${o.status==='out_for_delivery'&&isMine?`
+      <div class="action-box">
+        <div class="action-title">At delivery location. Ask receiver for 6-digit OTP:</div>
+        <input id="otp-d-${o.id}" class="otp-input" maxlength="6" placeholder="— — — — — —" oninput="this.value=this.value.replace(/\D/g,'')">
+        <button class="btn btn-t btn-full" style="margin-top:10px" onclick="doDelivery('${o.id}')" ${S.loading?'disabled':''}>
+          ${S.loading?'<span class="spin"></span>':''} ✓ Mark delivered
+        </button>
+      </div>`:''}
+
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-o btn-sm" onclick="openOrder('${o.id}')">View details</button>
+    </div>
+  </div>`;
+}
+
+function renderActive(){
+  const mine=S.orders.filter(o=>o.assigned_boy_id===S.user?.id&&!['delivered','cancelled'].includes(o.status));
+  const available=S.orders.filter(o=>o.status==='pending'&&!o.assigned_boy_id);
+  return`
+  ${S.ok?`<div class="alert alert-s">${S.ok}</div>`:''}
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  ${mine.length===0&&available.length===0?`<div class="empty"><div class="empty-icon">🚚</div><div>No active deliveries right now</div></div>`:''}
+  ${mine.length>0?`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">MY ACTIVE DELIVERIES (${mine.length})</div>${mine.map(renderOrderCard).join('')}`:''}
+  ${available.length>0?`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:20px 0 10px">AVAILABLE IN ${S.user?.city?.toUpperCase()||'YOUR CITY'} (${available.length})</div>${available.map(renderOrderCard).join('')}`:''}`;
+}
+
+function renderHistory(){
+  const done=S.orders.filter(o=>o.status==='delivered');
+  return`
+  <div style="font-size:15px;font-weight:600;margin-bottom:16px">Completed deliveries (${done.length})</div>
+  ${done.length===0?`<div class="empty"><div class="empty-icon">✅</div><div>No deliveries completed yet</div></div>`:''}
+  ${done.map(o=>`<div class="card" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-weight:700">${o.order_number}</div>
+        <div class="small muted">${o.pickup_city} → ${o.receiver_city} · ${fmt(o.updated_at)}</div>
+      </div>
+      <div style="text-align:right">
+        ${badge('delivered')}
+        <div style="font-size:13px;font-weight:700;color:var(--green);margin-top:4px">+${rup((o.total_price||o.price||0)*0.2)}</div>
+      </div>
+    </div>
+  </div>`).join('')}`;
+}
+
+function renderEarnings(){
+  const st=S.stats;
+  return`
+  <div style="font-size:15px;font-weight:600;margin-bottom:16px">Earnings & performance</div>
+  ${st?`
+  <div class="stats">
+    <div class="stat"><div class="stat-val" style="color:var(--teal)">${st.stats.totalDeliveries}</div><div class="stat-lbl">Delivered</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--amber)">${st.stats.activeOrders}</div><div class="stat-lbl">Active</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--green)">${rup(st.stats.totalEarnings)}</div><div class="stat-lbl">Earned</div></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    ${[['Total earnings',rup(st.stats.totalEarnings),'var(--green)'],['Pending payout',rup(st.stats.pendingEarnings),'var(--amber)'],['Your rating','⭐ '+(st.stats.rating||5).toFixed(1),'var(--purple)']].map(([k,v,c])=>`
+      <div class="earn-row"><span>${k}</span><strong style="color:${c}">${v}</strong></div>`).join('')}
+  </div>
+  <div class="card">
+    <div style="font-weight:600;margin-bottom:12px">Recent deliveries</div>
+    ${st.recentDeliveries.length===0?`<div class="muted small">No deliveries yet</div>`:
+    st.recentDeliveries.map(d=>`<div class="earn-row">
+      <div><div style="font-weight:500">${d.order_number}</div>
+        <div class="small muted">${d.receiver_city} · ${fmt(d.updated_at)}</div>
+      </div>
+      <div style="text-align:right">${badge(d.status)}<div class="small" style="color:var(--green);margin-top:3px">+${rup(d.amount)}</div></div>
+    </div>`).join('')}
+  </div>`:`<div class="loading"><div class="spin"></div></div>`}`;
+}
+
+function renderDetailModal(){
+  if(!S.selOrder)return'';
+  const{order:o,tracking:tr}=S.selOrder;
+  return`
+  <div class="modal-hd"><div class="modal-title">${o.order_number}</div><span class="modal-x" onclick="set({modal:null})">×</span></div>
+  <div class="modal-body">
+    <div style="margin-bottom:14px">${badge(o.status)}</div>
+    <div class="g2" style="margin-bottom:14px">
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">PICKUP FROM</div>
+        <div style="font-weight:500">${o.pickup_address}</div>
+        <div style="color:var(--purple);font-weight:700">${o.pickup_city}</div>
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">DELIVER TO</div>
+        <div style="font-weight:500">${o.receiver_name}</div>
+        <div style="color:var(--teal);font-weight:700">${o.receiver_city}</div>
+        <div class="small muted">${o.receiver_phone}</div>
+      </div>
+    </div>
+    <div class="g2" style="margin-bottom:14px">
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">PARCEL</div>
+        <div>${o.parcel_type} · ${o.parcel_weight}kg</div>
+        ${o.is_fragile?`<div style="color:var(--coral)" class="small">⚠ Fragile — handle carefully</div>`:''}
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small" style="margin-bottom:4px">YOUR EARNING</div>
+        <div style="font-size:20px;font-weight:800;color:var(--green)">${rup((o.total_price||o.price||0)*0.2)}</div>
+      </div>
+    </div>
+    ${o.special_instructions?`<div style="background:var(--amberL);border-radius:var(--r);padding:12px;margin-bottom:14px;font-size:13px"><strong>Instructions:</strong> ${o.special_instructions}</div>`:''}
+    <div class="muted small" style="text-transform:uppercase;font-weight:700;margin-bottom:10px">Tracking</div>
+    <div class="timeline">
+      ${tr.map((e,i)=>`<div class="t-item">
+        <div class="t-dot ${i===tr.length-1?'active':'done'}"></div>
+        <div style="font-weight:600;font-size:13px">${e.title}</div>
+        <div class="small muted">${e.description}</div>
+        <div style="font-size:11px;color:var(--hint)">${e.location} · ${fmt(e.created_at)}</div>
+      </div>`).join('')}
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-o" onclick="set({modal:null})">Close</button></div>`;
+}
+
+const tabs=[{id:'active',icon:'🚚',label:'Active'},{id:'history',icon:'✅',label:'History'},{id:'earnings',icon:'💰',label:'Earnings'}];
+
+function draw(){
+  const root=document.getElementById('root');
+  if(!S.token||!S.user){root.innerHTML=renderAuth();return}
+  let content='';
+  if(S.view==='active')content=renderActive();
+  else if(S.view==='history')content=renderHistory();
+  else if(S.view==='earnings')content=renderEarnings();
+
+  root.innerHTML=`
+  <nav class="nav">
+    <div class="nav-logo">🚚 ParcelMate</div>
+    <div style="display:flex;gap:4px">
+      ${tabs.map(t=>`<div class="nt ${S.view===t.id?'on':''}" onclick="navigate('${t.id}')">${t.icon} ${t.label}</div>`).join('')}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="color:rgba(255,255,255,.8);font-size:13px">${S.user.name}</span>
+      <button class="btn btn-o btn-sm" onclick="logout()" style="background:rgba(255,255,255,.15);border-color:transparent;color:#fff">Logout</button>
+    </div>
+  </nav>
+  <div class="container">${content}</div>
+  ${S.modal==='detail'?`<div class="modal-bg" onclick="if(event.target===this)set({modal:null})"><div class="modal">${renderDetailModal()}</div></div>`:''}`;
+  if(S.ok)setTimeout(()=>set({ok:null}),3500);
+}
+
+function navigate(v){
+  set({view:v,err:null,ok:null});
+  if(v==='active'||v==='history')loadOrders();
+  if(v==='earnings')loadStats();
+}
+
+draw();
+if(S.token&&S.user){loadOrders();loadStats()}
+</script>
+</body>
+</html>

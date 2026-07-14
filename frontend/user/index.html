@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ParcelMate — My Parcels</title>
+<link rel="stylesheet" href="../shared.css">
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+.nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100}
+.nav-logo{font-size:18px;font-weight:800;color:var(--purple)}
+.nav-tabs{display:flex;gap:4px}
+.nt{padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);transition:.15s}
+.nt:hover{background:var(--bg)}
+.nt.on{background:var(--purpleL);color:var(--purpleD)}
+.container{max-width:860px;margin:0 auto;padding:24px 16px}
+.aw{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.ac{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:36px;width:100%;max-width:400px;box-shadow:var(--shadow)}
+.tabs{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:22px}
+.tab{flex:1;padding:9px;text-align:center;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);transition:.15s}
+.tab.on{background:var(--purple);color:#fff}
+.qf{background:var(--amberL);border:1px solid #fac775;border-radius:var(--r);padding:14px;margin-bottom:20px}
+.qf-title{font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;margin-bottom:10px}
+.qf-btn{background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 12px;cursor:pointer;font-size:12px;transition:.15s;margin:2px}
+.qf-btn:hover{border-color:var(--purple);color:var(--purple)}
+/* Order card */
+.oc{background:var(--surface);border:1px solid var(--border);border-radius:var(--rL);padding:18px;cursor:pointer;transition:.15s;margin-bottom:12px}
+.oc:hover{border-color:var(--purple);box-shadow:var(--shadow)}
+.oc-num{font-weight:700;font-size:15px;color:var(--purple)}
+/* Payment section */
+.pay-box{background:var(--purpleL);border:1.5px solid var(--purple);border-radius:var(--r);padding:16px;margin:14px 0}
+.pay-title{font-weight:700;font-size:13px;color:var(--purple);margin-bottom:8px}
+/* Step progress */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:14px 0}
+.step-item{text-align:center;font-size:11px;padding:8px 4px;border-radius:6px}
+.step-item.done{background:var(--purpleL);color:var(--purple);font-weight:600}
+.step-item.active{background:var(--purple);color:#fff;font-weight:700}
+.step-item.todo{background:var(--bg);color:var(--hint)}
+/* Promo */
+.promo-row{display:flex;gap:8px;margin-top:4px}
+.promo-input{flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;outline:none}
+.promo-input:focus{border-color:var(--teal)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const API = 'http://localhost:3001/api';
+let S = {
+  token: localStorage.getItem('pm_token'),
+  user:  JSON.parse(localStorage.getItem('pm_user') || 'null'),
+  view: 'orders', authTab: 'login',
+  orders: [], notifs: [], unread: 0,
+  showBook: false, selOrder: null, modal: null,
+  loading: false, err: null, ok: null,
+  priceEst: null, promoMsg: null, promoDiscount: 0,
+  newOrderData: null, payingOrderId: null,
+};
+
+function set(p) { Object.assign(S, p); draw(); }
+function rup(n) { return '₹' + Math.round(n || 0); }
+function fmt(dt) { if (!dt) return '—'; return new Date(dt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+function badge(s) { return `<span class="badge s-${s}">${(s||'').replace(/_/g,' ')}</span>`; }
+
+async function api(m, path, body) {
+  const r = await fetch(API + path, {
+    method: m,
+    headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'Request failed');
+  return d;
+}
+
+async function loadOrders() {
+  try { const d = await api('GET', '/orders'); set({ orders: d.orders || [] }); }
+  catch (e) { set({ err: e.message }); }
+}
+async function loadNotifs() {
+  try { const d = await api('GET', '/notifications'); set({ notifs: d.notifications || [], unread: d.unread || 0 }); }
+  catch (e) {}
+}
+async function openOrder(id) {
+  try { const d = await api('GET', '/orders/' + id); set({ selOrder: d, modal: 'detail' }); }
+  catch (e) { set({ err: e.message }); }
+}
+async function estimatePrice() {
+  const pc = document.getElementById('f-pc')?.value?.trim();
+  const rc = document.getElementById('f-rc')?.value?.trim();
+  const pw = parseFloat(document.getElementById('f-pw')?.value || 0.5);
+  const pt = document.getElementById('f-pt')?.value || 'general';
+  const frag = document.getElementById('f-frag')?.checked;
+  const promo = document.getElementById('f-promo')?.value?.trim();
+  if (!pc || !rc) return;
+  try {
+    const d = await api('POST', '/orders/estimate', { from_city: pc, to_city: rc, weight: pw, parcel_type: pt, is_fragile: frag, promo_code: promo });
+    set({ priceEst: d.pricing, promoDiscount: d.discount || 0, promoMsg: d.promo_message });
+  } catch {}
+}
+
+async function doLogin(e) {
+  e.preventDefault(); const f = new FormData(e.target);
+  set({ loading: true, err: null });
+  try {
+    const d = await api('POST', '/auth/login', { phone: f.get('phone'), password: f.get('password') });
+    localStorage.setItem('pm_token', d.token);
+    localStorage.setItem('pm_user', JSON.stringify(d.user));
+    set({ token: d.token, user: d.user, loading: false });
+    loadOrders(); loadNotifs();
+  } catch (e) { set({ loading: false, err: e.message }); }
+}
+async function doRegister(e) {
+  e.preventDefault(); const f = new FormData(e.target);
+  set({ loading: true, err: null });
+  try {
+    const d = await api('POST', '/auth/register', { name: f.get('name'), phone: f.get('phone'), password: f.get('password'), city: f.get('city') });
+    localStorage.setItem('pm_token', d.token); localStorage.setItem('pm_user', JSON.stringify(d.user));
+    set({ token: d.token, user: d.user, loading: false });
+    loadOrders();
+  } catch (e) { set({ loading: false, err: e.message }); }
+}
+
+async function doBook(e) {
+  e.preventDefault(); const f = new FormData(e.target);
+  set({ loading: true, err: null });
+  try {
+    const body = {
+      receiver_name: f.get('rn'), receiver_phone: f.get('rph'),
+      receiver_address: f.get('ra'), receiver_city: f.get('rc'),
+      parcel_type: f.get('pt'), parcel_weight: parseFloat(f.get('pw')),
+      parcel_description: f.get('pd'), parcel_value: parseFloat(f.get('pv') || 0),
+      is_fragile: f.get('frag') ? 1 : 0,
+      pickup_address: f.get('pa'), pickup_city: f.get('pc'),
+      payment_method: f.get('pm'),
+      special_instructions: f.get('si'),
+      promo_code: f.get('promo') || undefined,
+    };
+    const d = await api('POST', '/orders', body);
+    set({ loading: false, showBook: false, newOrderData: d, modal: 'booked', ok: 'Order placed!' });
+    loadOrders();
+  } catch (e) { set({ loading: false, err: e.message }); }
+}
+
+// ── Razorpay Payment ─────────────────────────────────────────────────────────
+async function initiatePayment(orderId) {
+  set({ loading: true, err: null });
+  try {
+    const d = await api('POST', '/payments/initiate', { order_id: orderId });
+    const rzp = d.razorpay;
+    set({ loading: false });
+
+    if (!rzp || !window.Razorpay) {
+      // Mock payment for dev without real keys
+      await mockPaymentSuccess(orderId);
+      return;
+    }
+
+    const options = {
+      ...rzp,
+      handler: async (response) => {
+        try {
+          set({ loading: true });
+          await api('POST', '/payments/verify', {
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            order_id: orderId,
+          });
+          set({ loading: false, ok: 'Payment successful! Order confirmed.', modal: null });
+          loadOrders();
+        } catch (e) { set({ loading: false, err: 'Payment verification failed: ' + e.message }); }
+      },
+      modal: {
+        ondismiss: () => set({ err: 'Payment cancelled. You can retry from order details.' }),
+      },
+    };
+
+    const razorpayInstance = new window.Razorpay(options);
+    razorpayInstance.open();
+  } catch (e) { set({ loading: false, err: e.message }); }
+}
+
+async function mockPaymentSuccess(orderId) {
+  try {
+    await api('POST', '/payments/verify', {
+      razorpay_order_id: 'order_mock_test',
+      razorpay_payment_id: 'pay_mock_' + Date.now(),
+      razorpay_signature: 'mock_signature',
+      order_id: orderId,
+    });
+    set({ ok: 'Payment marked complete (test mode)', modal: null });
+    loadOrders();
+  } catch (e) { set({ err: e.message }); }
+}
+
+function logout() {
+  localStorage.clear();
+  set({ token: null, user: null, orders: [], view: 'orders', showBook: false, modal: null });
+}
+function fillLogin(ph) { document.getElementById('lph').value = ph; document.getElementById('lpw').value = 'password123'; }
+
+// ── RENDERS ──────────────────────────────────────────────────────────────────
+function renderAuth() {
+  return `<div class="aw"><div class="ac">
+  <div style="font-size:24px;font-weight:800;color:var(--purple);margin-bottom:4px">ParcelMate</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:24px">Doorstep parcel pickup & delivery</div>
+  <div class="qf">
+    <div class="qf-title">Test accounts — click to fill</div>
+    <button class="qf-btn" onclick="fillLogin('9876543210')">Rahul (Customer)</button>
+    <button class="qf-btn" onclick="fillLogin('9876543211')">Priya (Customer)</button>
+  </div>
+  <div class="tabs">
+    <div class="tab ${S.authTab==='login'?'on':''}" onclick="set({authTab:'login',err:null})">Login</div>
+    <div class="tab ${S.authTab==='reg'?'on':''}" onclick="set({authTab:'reg',err:null})">Register</div>
+  </div>
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  ${S.authTab==='login'?`
+    <form onsubmit="doLogin(event)">
+      <div class="field"><label>Phone</label><input id="lph" name="phone" placeholder="9876543210" required></div>
+      <div class="field"><label>Password</label><input id="lpw" name="password" type="password" placeholder="password123" required></div>
+      <button class="btn btn-p btn-full" ${S.loading?'disabled':''}>${S.loading?'<span class="spin"></span> Logging in…':'Login'}</button>
+    </form>
+  `:`
+    <form onsubmit="doRegister(event)">
+      <div class="field"><label>Full name</label><input name="name" required placeholder="Your name"></div>
+      <div class="g2">
+        <div class="field"><label>Phone</label><input name="phone" required placeholder="10 digits"></div>
+        <div class="field"><label>City</label><input name="city" placeholder="Ludhiana"></div>
+      </div>
+      <div class="field"><label>Password</label><input name="password" type="password" required placeholder="Min 6 characters"></div>
+      <button class="btn btn-p btn-full" ${S.loading?'disabled':''}>${S.loading?'Creating…':'Create account'}</button>
+    </form>
+  `}
+  </div></div>`;
+}
+
+function renderBookForm() {
+  const p = S.priceEst;
+  const finalTotal = p ? p.total - (S.promoDiscount || 0) : null;
+  return `<div class="card" style="margin-bottom:20px">
+  <div class="card-title">Book a pickup
+    <button class="btn btn-o btn-sm" onclick="set({showBook:false,err:null,priceEst:null,promoMsg:null,promoDiscount:0})">Cancel</button>
+  </div>
+  ${S.err?`<div class="alert alert-e">${S.err}</div>`:''}
+  <form onsubmit="doBook(event)">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">📍 Receiver details</div>
+    <div class="g2">
+      <div class="field"><label>Receiver name</label><input name="rn" required placeholder="Full name"></div>
+      <div class="field"><label>Phone</label><input name="rph" required placeholder="10 digit number"></div>
+    </div>
+    <div class="field"><label>Delivery address</label><textarea name="ra" required placeholder="Full address with landmark"></textarea></div>
+    <div class="field"><label>Delivery city</label><input id="f-rc" name="rc" required placeholder="e.g. Delhi" oninput="estimatePrice()"></div>
+    <div class="sep"></div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">🏠 Your pickup details</div>
+    <div class="field"><label>Pickup address</label><textarea name="pa" required placeholder="Your home or office address"></textarea></div>
+    <div class="field"><label>Pickup city</label><input id="f-pc" name="pc" required placeholder="e.g. Ludhiana" oninput="estimatePrice()"></div>
+    <div class="sep"></div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">📦 Parcel details</div>
+    <div class="g3">
+      <div class="field"><label>Type</label>
+        <select id="f-pt" name="pt" onchange="estimatePrice()">
+          <option value="general">General</option><option value="book">Book</option>
+          <option value="document">Document</option><option value="parcel">Parcel</option>
+          <option value="fragile">Fragile</option>
+        </select>
+      </div>
+      <div class="field"><label>Weight (kg)</label><input id="f-pw" name="pw" type="number" step="0.1" min="0.1" value="0.5" oninput="estimatePrice()"></div>
+      <div class="field"><label>Value (₹)</label><input name="pv" type="number" min="0" placeholder="0"></div>
+    </div>
+    <div class="g2">
+      <div class="field"><label>Description</label><input name="pd" placeholder="What's inside?"></div>
+      <div class="field" style="display:flex;align-items:end;padding-bottom:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input id="f-frag" type="checkbox" name="frag" style="width:16px;height:16px" onchange="estimatePrice()"> ⚠ Fragile item
+        </label>
+      </div>
+    </div>
+    <div class="field"><label>Payment method</label>
+      <select name="pm">
+        <option value="online">Online — UPI / Card / Net Banking</option>
+        <option value="cod">Cash on delivery (COD)</option>
+      </select>
+    </div>
+    <div class="field"><label>Promo code</label>
+      <div class="promo-row">
+        <input id="f-promo" name="promo" placeholder="FIRST50 or SAVE20" oninput="estimatePrice()">
+        <button type="button" class="btn btn-t btn-sm" onclick="estimatePrice()">Apply</button>
+      </div>
+      ${S.promoMsg?`<div style="font-size:12px;margin-top:6px;color:${S.promoDiscount>0?'var(--green)':'var(--coral)'}">${S.promoMsg}</div>`:''}
+    </div>
+    <div class="field"><label>Special instructions</label><input name="si" placeholder="Handle with care, call before delivery..."></div>
+
+    ${p?`<div class="card" style="margin-bottom:14px;background:var(--bg);border-color:var(--border)">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">Price estimate</div>
+      <div class="price-row"><span>Base price</span><span>${rup(p.breakdown?.base)}</span></div>
+      <div class="price-row"><span>Weight charge</span><span>${rup(p.breakdown?.weight_charge)}</span></div>
+      ${p.breakdown?.intercity?`<div class="price-row"><span>Intercity charge</span><span>${rup(p.breakdown.intercity)}</span></div>`:''}
+      ${p.breakdown?.fragile?`<div class="price-row"><span>Fragile surcharge</span><span>${rup(p.breakdown.fragile)}</span></div>`:''}
+      <div class="price-row"><span>GST (18%)</span><span>${rup(p.tax)}</span></div>
+      ${S.promoDiscount>0?`<div class="price-row" style="color:var(--green)"><span>Promo discount</span><span>-${rup(S.promoDiscount)}</span></div>`:''}
+      <div class="price-row"><span><strong>Total</strong></span><span style="color:var(--purple)"><strong>${rup(finalTotal)}</strong></span></div>
+    </div>`:''}
+    <button type="submit" class="btn btn-p" ${S.loading?'disabled':''}>${S.loading?'<span class="spin"></span> Booking…':'Confirm booking'}</button>
+  </form></div>`;
+}
+
+function renderOrders() {
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <div><div style="font-size:20px;font-weight:700">My parcels</div>
+      <div class="muted small">${S.orders.length} orders</div>
+    </div>
+    <button class="btn btn-p" onclick="set({showBook:!S.showBook,err:null,priceEst:null})">
+      ${S.showBook?'✕ Cancel':'+ New booking'}
+    </button>
+  </div>
+  ${S.ok?`<div class="alert alert-s">${S.ok}</div>`:''}
+  ${S.err&&!S.showBook?`<div class="alert alert-e">${S.err}</div>`:''}
+  ${S.showBook?renderBookForm():''}
+  ${S.orders.length===0&&!S.showBook?`<div class="empty"><div class="empty-icon">📦</div>
+    <div>No orders yet</div>
+    <div style="margin-top:12px"><strong style="color:var(--purple);cursor:pointer" onclick="set({showBook:true})">Book your first pickup →</strong></div>
+  </div>`:''}
+  ${S.orders.map(o=>`
+  <div class="oc" onclick="openOrder('${o.id}')">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">
+      <div><span class="oc-num">${o.order_number}</span> <span style="margin-left:8px">${badge(o.status)}</span></div>
+      <div class="small muted">${fmt(o.created_at)}</div>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:8px">
+      <span>To: <strong style="color:var(--text)">${o.receiver_name}</strong></span>
+      <span>${o.receiver_city}</span>
+      <span>${o.parcel_type} · ${o.parcel_weight}kg</span>
+      <span style="color:var(--purple);font-weight:700">${rup(o.total_price)}</span>
+      ${o.payment_status==='pending'&&o.payment_method==='online'?`<span style="color:var(--coral);font-weight:600">⚠ Payment pending</span>`:''}
+    </div>
+    ${o.status==='pending'?`<div class="otp-box" style="margin:0">
+      <div class="otp-label">Pickup OTP — share with delivery boy</div>
+      <div class="otp-code">${o.pickup_otp}</div>
+    </div>`:''}
+    ${o.status==='out_for_delivery'?`<div class="otp-box" style="background:var(--tealL);border-color:var(--teal);margin:0">
+      <div class="otp-label" style="color:var(--teal)">Delivery OTP — share when parcel arrives</div>
+      <div class="otp-code" style="color:var(--teal)">${o.delivery_otp}</div>
+    </div>`:''}
+    ${o.payment_status==='pending'&&o.payment_method==='online'&&o.status==='pending'?`
+      <div style="margin-top:10px" onclick="event.stopPropagation()">
+        <button class="btn btn-p btn-sm" onclick="initiatePayment('${o.id}')" ${S.loading?'disabled':''}>
+          ${S.loading?'<span class="spin"></span>':''} Pay ${rup(o.total_price)} now
+        </button>
+      </div>`:''}
+  </div>`).join('')}`;
+}
+
+function renderNotifs() {
+  return `
+  <div style="font-size:20px;font-weight:700;margin-bottom:20px">Notifications
+    ${S.unread>0?`<span class="badge s-confirmed" style="margin-left:8px">${S.unread} new</span>`:''}
+  </div>
+  ${S.notifs.length===0?`<div class="empty"><div class="empty-icon">🔔</div>No notifications</div>`:''}
+  ${S.notifs.map(n=>`
+  <div class="card" style="margin-bottom:10px;${!n.is_read?'border-color:var(--purple)':''}">
+    <div style="display:flex;justify-content:space-between;align-items:start">
+      <div>
+        <div style="font-weight:600;font-size:13px">${n.title}</div>
+        <div class="small muted" style="margin-top:3px">${n.message}</div>
+      </div>
+      <div class="small muted" style="white-space:nowrap;margin-left:12px">${fmt(n.created_at)}</div>
+    </div>
+  </div>`).join('')}`;
+}
+
+function renderDetailModal() {
+  if (!S.selOrder) return '';
+  const { order: o, tracking: tr } = S.selOrder;
+  const steps = ['pending','confirmed','picked_up','in_transit','out_for_delivery','delivered'];
+  const cur = steps.indexOf(o.status);
+  return `
+  <div class="modal-hd"><div class="modal-title">Order ${o.order_number}</div><span class="modal-x" onclick="set({modal:null})">×</span></div>
+  <div class="modal-body">
+    <div style="margin-bottom:16px">${badge(o.status)} ${badge(o.payment_status)}</div>
+
+    <!-- Step progress -->
+    <div class="steps" style="grid-template-columns:repeat(6,1fr)">
+      ${steps.map((s,i)=>`<div class="step-item ${i<cur?'done':i===cur?'active':'todo'}">${s.replace(/_/g,' ')}</div>`).join('')}
+    </div>
+
+    <!-- OTPs -->
+    ${o.status==='pending'?`<div class="otp-box">
+      <div class="otp-label">Pickup OTP — share with delivery boy</div>
+      <div class="otp-code">${o.pickup_otp}</div>
+    </div>`:''}
+    ${o.status==='out_for_delivery'?`<div class="otp-box" style="background:var(--tealL);border-color:var(--teal)">
+      <div class="otp-label" style="color:var(--teal)">Delivery OTP</div>
+      <div class="otp-code" style="color:var(--teal)">${o.delivery_otp}</div>
+    </div>`:''}
+
+    <!-- Payment pending -->
+    ${o.payment_status==='pending'&&o.payment_method==='online'?`<div class="pay-box">
+      <div class="pay-title">⚠ Payment required</div>
+      <div class="small muted" style="margin-bottom:10px">Complete payment to confirm your booking</div>
+      <button class="btn btn-p" onclick="initiatePayment('${o.id}')" ${S.loading?'disabled':''}>
+        ${S.loading?'<span class="spin"></span>':''} Pay ${rup(o.total_price)} via Razorpay
+      </button>
+      <div class="small muted" style="margin-top:8px">🔒 Secured by Razorpay · UPI / Card / NetBanking</div>
+    </div>`:''}
+    ${o.payment_status==='completed'?`<div style="background:var(--greenL);border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--green);margin-bottom:14px">✅ Payment confirmed · ${rup(o.total_price)}</div>`:''}
+
+    <!-- Details grid -->
+    <div class="g2" style="margin-bottom:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Receiver</div>
+        <div><strong>${o.receiver_name}</strong></div>
+        <div class="small muted">${o.receiver_phone}</div>
+        <div class="small">${o.receiver_address}, ${o.receiver_city}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Parcel</div>
+        <div>${o.parcel_type} · ${o.parcel_weight}kg</div>
+        ${o.is_fragile?'<div style="color:var(--coral)" class="small">⚠ Fragile</div>':''}
+        <div class="small muted">Value: ${rup(o.parcel_value)}</div>
+      </div>
+    </div>
+
+    <div class="g2" style="margin-bottom:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Price</div>
+        <div style="font-size:18px;font-weight:700;color:var(--purple)">${rup(o.total_price)}</div>
+        <div class="small muted">${o.subtotal} + GST ${o.tax}</div>
+      </div>
+      ${o.boy_name?`<div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Delivery boy</div>
+        <div><strong>${o.boy_name}</strong></div>
+        <div class="small muted">⭐ ${o.boy_rating||5.0}</div>
+      </div>`:''}
+    </div>
+
+    <!-- Tracking -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Tracking history</div>
+    <div class="timeline">
+      ${tr.map((e,i)=>`<div class="t-item">
+        <div class="t-dot ${i===tr.length-1?'active':'done'}"></div>
+        <div style="font-weight:600;font-size:13px">${e.title}</div>
+        <div class="small muted">${e.description}</div>
+        <div style="font-size:11px;color:var(--hint)">${e.location} · ${fmt(e.created_at)}</div>
+      </div>`).join('')}
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-o" onclick="set({modal:null})">Close</button></div>`;
+}
+
+function renderBookedModal() {
+  const d = S.newOrderData;
+  if (!d) return '';
+  const isOnline = d.order.payment_method === 'online';
+  return `
+  <div class="modal-hd"><div class="modal-title">Booking confirmed! 🎉</div><span class="modal-x" onclick="set({modal:null})">×</span></div>
+  <div class="modal-body">
+    <div class="alert alert-s">Order ${d.order.order_number} placed successfully</div>
+    <div class="otp-box">
+      <div class="otp-label">Pickup OTP — give to delivery boy</div>
+      <div class="otp-code">${d.pickup_otp}</div>
+      <div class="small muted" style="margin-top:6px">Keep this safe — needed to hand over parcel</div>
+    </div>
+    <div class="g2" style="margin-bottom:14px">
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small">Total amount</div>
+        <div style="font-size:18px;font-weight:700;color:var(--purple);margin-top:2px">${rup(d.pricing?.final_total||d.order.total_price)}</div>
+      </div>
+      <div style="background:var(--bg);padding:12px;border-radius:var(--r);font-size:13px">
+        <div class="muted small">Payment</div>
+        <div style="font-weight:600;margin-top:2px">${d.order.payment_method==='cod'?'Cash on delivery':'Online payment'}</div>
+      </div>
+    </div>
+    ${isOnline?`<div class="pay-box">
+      <div class="pay-title">Complete payment to confirm order</div>
+      <button class="btn btn-p" onclick="set({modal:null});initiatePayment('${d.order.id}')">
+        Pay ${rup(d.pricing?.final_total||d.order.total_price)} via Razorpay →
+      </button>
+      <div class="small muted" style="margin-top:8px">Test card: 4111 1111 1111 1111 · UPI: success@razorpay</div>
+    </div>`:`<div class="alert alert-i">Pay cash to delivery boy when order arrives</div>`}
+  </div>
+  <div class="modal-foot"><button class="btn btn-p" onclick="set({modal:null})">Done</button></div>`;
+}
+
+function draw() {
+  const root = document.getElementById('root');
+  if (!S.token || !S.user) { root.innerHTML = renderAuth(); return; }
+
+  let content = '';
+  if (S.view === 'orders') content = renderOrders();
+  else if (S.view === 'notifs') content = renderNotifs();
+
+  root.innerHTML = `
+  <nav class="nav">
+    <div class="nav-logo">📦 ParcelMate</div>
+    <div class="nav-tabs">
+      <div class="nt ${S.view==='orders'?'on':''}" onclick="navigate('orders')">My orders</div>
+      <div class="nt ${S.view==='notifs'?'on':''}" onclick="navigate('notifs')">
+        Notifications${S.unread>0?` <span class="badge s-confirmed" style="padding:1px 6px">${S.unread}</span>`:''}
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;font-size:13px">
+      <span class="muted">${S.user.name}</span>
+      <button class="btn btn-o btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+  <div class="container">${content}</div>
+  ${S.modal==='detail'?`<div class="modal-bg" onclick="if(event.target===this)set({modal:null})"><div class="modal">${renderDetailModal()}</div></div>`:''}
+  ${S.modal==='booked'?`<div class="modal-bg"><div class="modal">${renderBookedModal()}</div></div>`:''}`;
+
+  if (S.ok) setTimeout(() => set({ ok: null }), 4000);
+}
+
+function navigate(v) {
+  set({ view: v, err: null, ok: null });
+  if (v === 'orders') loadOrders();
+  else if (v === 'notifs') { loadNotifs(); api('PATCH', '/notifications/read-all').catch(() => {}); }
+}
+
+draw();
+if (S.token && S.user) { loadOrders(); loadNotifs(); }
+</script>
+</body>
+</html>
